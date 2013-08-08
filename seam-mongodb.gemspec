@@ -8,8 +8,8 @@ Gem::Specification.new do |spec|
   spec.version       = Seam::Mongodb::VERSION
   spec.authors       = ["Darren Cauthon"]
   spec.email         = ["darren@cauthon.com"]
-  spec.description   = %q{TODO: Write a gem description}
-  spec.summary       = %q{TODO: Write a gem summary}
+  spec.description   = %q{MongoDB support for seam}
+  spec.summary       = %q{MongoDB support for seam}
   spec.homepage      = ""
   spec.license       = "MIT"
 
