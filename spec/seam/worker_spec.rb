@@ -10,6 +10,14 @@ describe "worker" do
     Timecop.return
   end
 
+  describe "step" do
+    it "should match the name" do
+      worker = Seam::Worker.new
+      worker.handles(:darren)
+      worker.step.must_equal "darren"
+    end
+  end
+
   describe "move_to_next_step" do
     it "should work" do
       flow = Seam::Flow.new
@@ -25,6 +33,29 @@ describe "worker" do
       apple_worker.handles(:apple)
       def apple_worker.process
         move_to_next_step
+      end
+
+      apple_worker.execute effort
+
+      effort = Seam::Effort.find(effort.id)
+      effort.next_step.must_equal "orange"
+    end
+  end
+
+  describe "move_to_next_step as a default" do
+    it "should go to move_to_next_step by default" do
+      flow = Seam::Flow.new
+      flow.apple
+      flow.orange
+
+      effort = flow.start( { first_name: 'John' } )
+      effort = Seam::Effort.find(effort.id)
+
+      effort.next_step.must_equal "apple"
+
+      apple_worker = Seam::Worker.new
+      apple_worker.handles(:apple)
+      def apple_worker.process
       end
 
       apple_worker.execute effort
@@ -63,9 +94,51 @@ describe "worker" do
       fresh_effort.next_step.must_equal "apple"
     end
 
-    it "should not update the next execute date" do
+    it "should update the next execute date" do
       fresh_effort = Seam::Effort.find(effort.id)
       fresh_effort.next_execute_at.must_equal Time.parse('4/4/2013')
+    end
+  end
+
+  describe "try_again_on" do
+
+    describe "putting it off for one day" do
+      let(:effort) do
+        flow = Seam::Flow.new
+        flow.apple
+        flow.orange
+
+        e = flow.start( { first_name: 'John' } )
+        Seam::Effort.find(e.id)
+      end
+
+      before do
+        Timecop.freeze Time.parse('3/4/2013')
+        effort.next_step.must_equal "apple"
+
+        apple_worker = Seam::Worker.new
+        apple_worker.handles(:apple)
+        def apple_worker.process
+          try_again_on Time.parse('4/4/2013')
+        end
+
+        apple_worker.execute effort
+      end
+
+      it "should not update the next step" do
+        fresh_effort = Seam::Effort.find(effort.id)
+        fresh_effort.next_step.must_equal "apple"
+      end
+
+      it "should update the next execute date" do
+        fresh_effort = Seam::Effort.find(effort.id)
+        fresh_effort.next_execute_at.must_equal Time.parse('4/4/2013')
+      end
+
+      it "should update the history" do
+        fresh_effort = Seam::Effort.find(effort.id)
+        fresh_effort.history[0]['try_again_on'].must_equal Time.parse('4/4/2013')
+      end
     end
   end
 
@@ -271,7 +344,7 @@ describe "worker" do
       effort.data['hit 3'].must_equal 1
 
       effort.complete?.must_equal true
-      #effort.completed_at.must_equal Time.now
+      effort.completed_at.must_equal Time.now
       
       # FUTURE WAVES
       send_postcard_if_necessary_worker.execute_all
@@ -575,10 +648,96 @@ describe "worker" do
       fresh_effort = Seam::Effort.find(effort.id)
       fresh_effort.next_step.nil?.must_equal true
     end
+
+    it "should mark the completed_at date" do
+      fresh_effort = Seam::Effort.find(effort.id)
+      fresh_effort.completed_at.must_equal Time.now
+    end
     
     it "should mark the history" do
       effort.history[0].contrast_with!({"step"=>"apple", "result" => "eject" } )
     end
 
   end
+
+  describe "use the name of the worker to tie to a step" do
+
+    let(:effort) do
+      flow = Seam::Flow.new
+      flow.i_will_not_call_handles
+
+      e = flow.start
+      Seam::Effort.find(e.id)
+    end
+
+    before do
+      effort
+      worker = IWillNotCallHandlesWorker.new
+      IWillNotCallHandlesWorker.new.execute_all
+    end
+
+    it "should complete the effort" do
+      fresh_effort = Seam::Effort.find effort.id
+      fresh_effort.complete?.must_equal true
+    end
+
+  end
+
+  describe "making the current step available" do
+    it "should return the first step if on the first step" do
+      flow = Seam::Flow.new
+      flow.apple("test")
+      flow.orange
+
+      effort = flow.start( { first_name: 'John' } )
+      effort = Seam::Effort.find(effort.id)
+
+      effort.next_step.must_equal "apple"
+
+      apple_worker = Seam::Worker.new
+      apple_worker.handles(:apple)
+      def apple_worker.process
+        current_step.nil?.must_equal false
+        current_step["name"].must_equal "apple"
+        current_step["arguments"].must_equal ["test"]
+      end
+
+      apple_worker.execute effort
+    end
+
+    it "should return the second step if on the second step" do
+      flow = Seam::Flow.new
+      flow.apple("test")
+      flow.orange("another test")
+
+      effort = flow.start( { first_name: 'John' } )
+      effort = Seam::Effort.find(effort.id)
+
+      effort.next_step.must_equal "apple"
+
+      apple_worker = Seam::Worker.new
+      apple_worker.handles(:apple)
+      def apple_worker.process
+        current_step.nil?.must_equal false
+        current_step["name"].must_equal "apple"
+        current_step["arguments"].must_equal ["test"]
+      end
+
+      orange_worker = Seam::Worker.new
+      orange_worker.handles(:orange)
+      def orange_worker.process
+        current_step.nil?.must_equal false
+        current_step["name"].must_equal "orange"
+        current_step["arguments"].must_equal ["another test"]
+      end
+
+      apple_worker.execute_all
+      orange_worker.execute_all
+    end
+  end
+end
+
+class IWillNotCallHandlesWorker < Seam::Worker
+  # no calling handles here
+  def process; end
 end

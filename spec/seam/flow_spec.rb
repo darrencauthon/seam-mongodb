@@ -94,4 +94,39 @@ describe "flow" do
       end
     end
   end
+
+  describe "adding steps" do
+    describe "new steps" do
+      it "should return true" do
+        flow = Seam::Flow.new
+        flow.do_something.must_equal true
+        flow.do_something_else.must_equal true
+      end
+    end
+
+    describe "repeating steps" do
+      it "should only add the step once" do
+        flow = Seam::Flow.new
+        flow.do_something.must_equal true
+        flow.steps.count.must_equal 1
+        flow.do_something.must_equal true
+        flow.steps.count.must_equal 2
+      end
+    end
+
+    describe "repeating steps with different data" do
+      it "should only add the step once" do
+        flow = Seam::Flow.new
+        flow.do_something(special_id: 'one').must_equal true
+        flow.do_something( { special_id: 'two' }, 4).must_equal true
+        flow.steps.count.must_equal 2
+
+        flow.steps[0].arguments.count.must_equal 1
+        flow.steps[0].arguments[0].contrast_with!( { special_id: 'one' } )
+        flow.steps[1].arguments.count.must_equal 2
+        flow.steps[1].arguments[0].contrast_with!( { special_id: 'two' } )
+        flow.steps[1].arguments[1].must_equal 4
+      end
+    end
+  end
 end
