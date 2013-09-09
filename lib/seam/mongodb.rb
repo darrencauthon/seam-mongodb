@@ -1,6 +1,7 @@
 require 'seam'
 require "seam/mongodb/version"
 require 'moped'
+require 'subtle'
 
 module Seam
   module Mongodb
@@ -25,7 +26,11 @@ module Seam
         def self.find_all_pending_executions_by_step step
           Seam::Mongodb.collection
             .find( { next_step: step, next_execute_at: { '$lte' => Time.now } } )
-            .map { |x| Seam::Effort.parse x }
+            .map do |x|
+              -> do
+                Seam::Effort.parse x
+              end.to_object
+            end
         end
 
         def self.save effort
