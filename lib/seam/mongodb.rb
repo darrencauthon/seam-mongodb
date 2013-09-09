@@ -26,9 +26,11 @@ module Seam
         def self.find_all_pending_executions_by_step step
           Seam::Mongodb.collection
             .find( { next_step: step, next_execute_at: { '$lte' => Time.now } } )
+            .select( { '_id' => 1 } )
             .map do |x|
               -> do
-                Seam::Effort.parse x
+                record = Seam::Mongodb.collection.find( { '_id' => x['_id'] } ).first
+                Seam::Effort.parse record
               end.to_object
             end
         end
