@@ -44,13 +44,12 @@ module Seam
                             } )
                      .first
           return [] unless record
-          results = [record].map do |x|
-              -> do
-                record = Seam::Mongodb.collection.find( { '_id' => x['_id'] } ).first
-                Seam::Effort.parse record
-              end.to_object
-            end
-          results
+          [record].map do |x|
+                         -> do
+                           record = Seam::Mongodb.collection.find( { '_id' => x['_id'] } ).first
+                           Seam::Effort.parse record
+                         end.to_object
+                       end
         end
 
         def self.save effort
