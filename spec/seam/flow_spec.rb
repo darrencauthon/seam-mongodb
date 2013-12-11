@@ -63,7 +63,9 @@ describe "flow" do
         Timecop.freeze now
 
         @expected_uuid = SecureRandom.uuid.to_s
-        SecureRandom.expects(:uuid).returns @expected_uuid
+        SecureRandom.stubs(:uuid).returns(@expected_uuid)
+                                 .then.returns(1)
+                                 .then.returns(2)
 
         @effort = flow.start( { first_name: 'John' } )
       end
@@ -92,6 +94,13 @@ describe "flow" do
         effort = Seam::Effort.find @effort.id
         effort.to_hash.contrast_with! @effort.to_hash, [:id, :created_at]
       end
+
+      it "should set unique identifiers on the flow ids" do
+        effort = Seam::Effort.find @effort.id
+        effort.flow['steps'][0]['id'].must_equal '1'
+        effort.flow['steps'][1]['id'].must_equal '2'
+      end
+
     end
   end
 
@@ -126,6 +135,38 @@ describe "flow" do
         flow.steps[1].arguments.count.must_equal 2
         flow.steps[1].arguments[0].contrast_with!( { special_id: 'two' } )
         flow.steps[1].arguments[1].must_equal 4
+      end
+    end
+  end
+
+  describe "stamping history" do
+    describe "default" do
+      it "should should be false" do
+        flow = Seam::Flow.new
+        flow.stamp_data_history.must_equal false
+      end
+    end
+
+    describe "setting it to true" do
+      it "allow to be set to true" do
+        flow = Seam::Flow.new
+        flow.stamp_data_history = true
+        flow.stamp_data_history.must_equal true
+      end
+    end
+
+    describe "carrying the value through the serialization" do
+
+      it "should be able to persist false" do
+        flow = Seam::Flow.new
+        flow.stamp_data_history = false
+        flow.to_hash[:stamp_data_history].must_equal false
+      end
+
+      it "should be able to persist true" do
+        flow = Seam::Flow.new
+        flow.stamp_data_history = true
+        flow.to_hash[:stamp_data_history].must_equal true
       end
     end
   end
