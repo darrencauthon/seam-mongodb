@@ -4,6 +4,7 @@ describe "worker" do
 
   before do
     Seam::Persistence.destroy
+    @stamp_data_history = true
   end
 
   after do
@@ -19,26 +20,82 @@ describe "worker" do
   end
 
   describe "move_to_next_step" do
-    it "should work" do
-      flow = Seam::Flow.new
-      flow.apple
-      flow.orange
 
-      effort = flow.start( { first_name: 'John' } )
-      effort = Seam::Effort.find(effort.id)
+    [:date].to_objects {[
+      ['1/1/2011'],
+      ['3/4/2015']
+    ]}.each do |test|
+      
+      describe "move immediately" do
 
-      effort.next_step.must_equal "apple"
+        before { Timecop.freeze Time.parse(test.date) }
+        after  { Timecop.return }
 
-      apple_worker = Seam::Worker.new
-      apple_worker.handles(:apple)
-      def apple_worker.process
-        move_to_next_step
+        it "should move to the next step and set the date to now" do
+          flow = Seam::Flow.new
+          flow.apple
+          flow.orange
+
+          effort = flow.start( { first_name: 'John' } )
+          effort = Seam::Effort.find(effort.id)
+
+          effort.next_step.must_equal "apple"
+
+          apple_worker = Seam::Worker.new
+          apple_worker.handles(:apple)
+          def apple_worker.process
+            move_to_next_step
+          end
+
+          apple_worker.execute effort
+
+          effort = Seam::Effort.find(effort.id)
+          effort.next_step.must_equal "orange"
+          effort.next_execute_at.must_equal Time.parse(test.date)
+        end
+
       end
 
-      apple_worker.execute effort
+    end
 
-      effort = Seam::Effort.find(effort.id)
-      effort.next_step.must_equal "orange"
+    [:date, :next_date].to_objects {[
+      ['1/1/2011', '2/1/2011'],
+      ['1/1/2011', '2/2/2011'],
+      ['3/4/2015', '4/5/2016']
+    ]}.each do |test|
+
+      describe "move to some point in the future" do
+
+        before { Timecop.freeze Time.parse(test.date) }
+        after  { Timecop.return }
+
+        it "should move to the next step and set the date to now" do
+          flow = Seam::Flow.new
+          flow.apple
+          flow.orange
+
+          effort = flow.start( { first_name: 'John' } )
+          effort = Seam::Effort.find(effort.id)
+
+          effort.next_step.must_equal "apple"
+
+          apple_worker = Seam::Worker.new
+          apple_worker.handles(:apple)
+          eval("
+          def apple_worker.process
+            move_to_next_step( { on: Time.parse('#{test.next_date}') } )
+          end
+          ")
+
+          apple_worker.execute effort
+
+          effort = Seam::Effort.find(effort.id)
+          effort.next_step.must_equal "orange"
+          effort.next_execute_at.must_equal Time.parse(test.next_date)
+        end
+
+      end
+
     end
   end
 
@@ -260,6 +317,7 @@ describe "worker" do
     let(:effort_creator) do
       ->() do
         e = flow.start
+        flow.stamp_data_history = @stamp_data_history
         Seam::Effort.find(e.id)
       end
     end
@@ -547,11 +605,10 @@ describe "worker" do
 
       effort.history.count.must_equal 1
       effort.history[0].contrast_with!( {
+                                          "step_id" => effort.flow['steps'][0]['id'],
                                           "started_at"=> Time.now, 
                                           "step"=>"wait_for_attempting_contact_stage",
                                           "stopped_at" => Time.now, 
-                                          "data_before" => { "first_name" => "DARREN" } ,
-                                          "data_after"  => { "first_name" => "DARREN", "hit 1" => 1 } 
                                         } )
 
       send_postcard_if_necessary_worker.execute_all
@@ -565,7 +622,14 @@ describe "worker" do
       effort.next_step.must_equal "wait_for_attempting_contact_stage"
 
       effort.history.count.must_equal 1
-      effort.history[0].contrast_with!({"started_at"=> Time.now, "step"=>"wait_for_attempting_contact_stage", "stopped_at" => Time.now, "result" => "try_again_in", "try_again_on" => Time.now + 1.day } )
+      effort.history[0].contrast_with!( {
+                                          "step_id" => effort.flow['steps'][0]['id'],
+                                          "started_at"=> Time.now,
+                                          "step"=>"wait_for_attempting_contact_stage",
+                                          "stopped_at" => Time.now,
+                                          "result" => "try_again_in",
+                                          "try_again_on" => Time.now + 1.day 
+                                        } )
 
       # THE NEXT DAY
       Timecop.freeze Time.parse('27/12/2013')
@@ -578,7 +642,13 @@ describe "worker" do
       effort.next_step.must_equal "wait_for_attempting_contact_stage"
 
       effort.history.count.must_equal 2
-      effort.history[1].contrast_with!({"started_at"=> Time.now, "step"=>"wait_for_attempting_contact_stage", "stopped_at" => Time.now, "result" => "try_again_in" } )
+      effort.history[1].contrast_with!( {
+                                          "step_id" => effort.flow['steps'][0]['id'],
+                                          "started_at"=> Time.now, 
+                                          "step"=>"wait_for_attempting_contact_stage",
+                                          "stopped_at" => Time.now,
+                                          "result" => "try_again_in" 
+                                        } )
 
       # THE NEXT DAY
       Timecop.freeze Time.parse('28/12/2013')
@@ -591,7 +661,13 @@ describe "worker" do
       effort.next_step.must_equal "determine_if_postcard_should_be_sent"
 
       effort.history.count.must_equal 3
-      effort.history[2].contrast_with!({"started_at"=> Time.now, "step"=>"wait_for_attempting_contact_stage", "stopped_at" => Time.now, "result" => "move_to_next_step" } )
+      effort.history[2].contrast_with!( { 
+                                          "step_id" => effort.flow['steps'][0]['id'],
+                                          "started_at"=> Time.now,
+                                          "step"=>"wait_for_attempting_contact_stage",
+                                          "stopped_at" => Time.now,
+                                          "result" => "move_to_next_step" 
+                                        } )
 
       # KEEP GOING
       send_postcard_if_necessary_worker.execute_all
@@ -601,7 +677,13 @@ describe "worker" do
       effort.next_step.must_equal "send_postcard_if_necessary"
 
       effort.history.count.must_equal 4
-      effort.history[3].contrast_with!({"started_at"=> Time.now, "step"=>"determine_if_postcard_should_be_sent", "stopped_at" => Time.now, "result" => "move_to_next_step" } )
+      effort.history[3].contrast_with!( { 
+                                          "step_id" => effort.flow['steps'][1]['id'],
+                                          "started_at"=> Time.now,
+                                          "step"=>"determine_if_postcard_should_be_sent",
+                                          "stopped_at" => Time.now,
+                                          "result" => "move_to_next_step" 
+                                        } )
       
       # KEEP GOING
       send_postcard_if_necessary_worker.execute_all
@@ -611,7 +693,13 @@ describe "worker" do
       effort.next_step.must_equal nil
 
       effort.history.count.must_equal 5
-      effort.history[4].contrast_with!({"started_at"=> Time.now, "step"=>"send_postcard_if_necessary", "stopped_at" => Time.now, "result" => "move_to_next_step" } )
+      effort.history[4].contrast_with!( {
+                                          "step_id" => effort.flow['steps'][2]['id'],
+                                          "started_at"=> Time.now,
+                                          "step"=>"send_postcard_if_necessary",
+                                          "stopped_at" => Time.now,
+                                          "result" => "move_to_next_step" 
+                                        } )
     end
   end
 
@@ -733,6 +821,85 @@ describe "worker" do
 
       apple_worker.execute_all
       orange_worker.execute_all
+    end
+  end
+
+  describe "data history" do
+    describe "stamping the history" do
+      let(:effort) do
+        flow = Seam::Flow.new
+        flow.stamp_data_history = true
+        flow.apple
+
+        e = flow.start( { first_name: 'John' } )
+        Seam::Effort.find(e.id)
+      end
+
+      before do
+        Timecop.freeze Time.parse('3/4/2013')
+        effort.next_step.must_equal "apple"
+
+        apple_worker = Seam::Worker.new
+        apple_worker.handles(:apple)
+        def apple_worker.process
+          effort.data['something'] = 'else'
+        end
+
+        apple_worker.execute effort
+      end
+
+      it "should not update the next step" do
+        fresh_effort = Seam::Effort.find(effort.id)
+        fresh_effort.history.count.must_equal 1
+      end
+
+      it "should set the data_before history" do
+        fresh_effort = Seam::Effort.find(effort.id)
+        fresh_effort.history.first["data_before"].must_equal( { "first_name" => 'John' } )
+      end
+
+      it "should set the data_after history" do
+        fresh_effort = Seam::Effort.find(effort.id)
+        fresh_effort.history.first["data_after"].must_equal( { "first_name" => 'John', "something" => 'else' } )
+      end
+    end
+
+    describe "not stamping the history" do
+      let(:effort) do
+        flow = Seam::Flow.new
+        flow.stamp_data_history = false
+        flow.apple
+
+        e = flow.start( { first_name: 'John' } )
+        Seam::Effort.find(e.id)
+      end
+
+      before do
+        Timecop.freeze Time.parse('3/4/2013')
+
+        apple_worker = Seam::Worker.new
+        apple_worker.handles(:apple)
+        def apple_worker.process
+          effort.data['something'] = 'else'
+        end
+
+        apple_worker.execute effort
+      end
+
+      it "should not update the next step" do
+        fresh_effort = Seam::Effort.find(effort.id)
+        fresh_effort.history.count.must_equal 1
+      end
+
+      it "should set the data_before history" do
+        fresh_effort = Seam::Effort.find(effort.id)
+        fresh_effort.history.first["data_before"].nil?.must_equal true
+      end
+
+      it "should set the data_after history" do
+        fresh_effort = Seam::Effort.find(effort.id)
+        fresh_effort.history.first["data_after"].nil?.must_equal true
+      end
     end
   end
 end

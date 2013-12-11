@@ -35,6 +35,23 @@ module Seam
             end
         end
 
+        def self.find_something_to_do
+          record = Seam::Mongodb.collection
+                     .find( { 
+                              next_execute_at: { '$lte' => Time.now }, 
+                              next_step: { '$ne' => nil },
+                              complete: { '$in' => [nil, false] },
+                            } )
+                     .first
+          return [] unless record
+          [record].map do |x|
+                         -> do
+                           record = Seam::Mongodb.collection.find( { '_id' => x['_id'] } ).first
+                           Seam::Effort.parse record
+                         end.to_object
+                       end
+        end
+
         def self.save effort
           Seam::Mongodb.collection
               .find( { id: effort.id } )
