@@ -25,7 +25,10 @@ module Seam
 
         def self.find_all_pending_executions_by_step step
           Seam::Mongodb.collection
-            .find( { next_step: step, next_execute_at: { '$lte' => Time.now } } )
+            .find( { 
+                     next_step:       step, 
+                     next_execute_at: { '$lte' => Time.now } 
+                   } )
             .select( { '_id' => 1 } )
             .map do |x|
               -> do
@@ -39,8 +42,8 @@ module Seam
           record = Seam::Mongodb.collection
                      .find( { 
                               next_execute_at: { '$lte' => Time.now }, 
-                              next_step: { '$ne' => nil },
-                              complete: { '$in' => [nil, false] },
+                              next_step:       { '$ne'  => nil },
+                              complete:        { '$in'  => [nil, false] },
                             } )
                      .first
           return [] unless record
